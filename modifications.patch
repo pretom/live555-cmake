@@ -1,0 +1,155 @@
+diff -Naur live/README.md live-new/README.md
+--- live/README.md	1970-01-01 01:00:00.000000000 +0100
++++ live-new/README.md	2017-01-28 17:18:26.000000000 +0000
+@@ -0,0 +1,27 @@
++# Build Instructions
++
++```bash
++./genMakefiles linux
++make -j4
++```
++
++Replace "linux" with your platform, e.g. avr32-linux, cygwin, freebsd, iphoneos, linux, linux-64bit, macosx, openbsd, solaris-64bit, etc (see config.PLATFORM files)
++
++You will find various executables:
++
++ * ./testProgs - contain various programs such as testRTSPClient to receive an RTSP stream
++ * ./proxyServer/live555ProxyServer - a great RTSP proxy server
++ * ./mediaServer/live555MediaServer - an RTSP media server for serving static files over RTSP
++
++# Changes to Master
++
++See modifications.patch to see exactly what was changed compared to vanilla.
++
++### Buffer sizes
++
++OutPacketBuffer::maxSize is increased to 2,000,000 bytes which makes live555 work better with buggy IP cameras.
++
++### Force port re-use
++
++Added -DALLOW_RTSP_SERVER_PORT_REUSE=1 to force reusing existing port (e.g. when restarting the proxy). Please ensure
++you never run multiple instances of the proxy on the same port!
+diff -Naur live/config.linux live-new/config.linux
+--- live/config.linux	2017-01-26 11:33:01.000000000 +0000
++++ live-new/config.linux	2017-01-28 17:19:24.000000000 +0000
+@@ -1,4 +1,4 @@
+-COMPILE_OPTS =		$(INCLUDES) -I. -O2 -DSOCKLEN_T=socklen_t -D_LARGEFILE_SOURCE=1 -D_FILE_OFFSET_BITS=64
++COMPILE_OPTS =		$(INCLUDES) -I. -O2 -DSOCKLEN_T=socklen_t -D_LARGEFILE_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DALLOW_RTSP_SERVER_PORT_REUSE=1
+ C =			c
+ C_COMPILER =		cc
+ C_FLAGS =		$(COMPILE_OPTS) $(CPPFLAGS) $(CFLAGS)
+diff -Naur live/liveMedia/MediaSink.cpp live-new/liveMedia/MediaSink.cpp
+--- live/liveMedia/MediaSink.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/liveMedia/MediaSink.cpp	2017-01-28 17:19:49.000000000 +0000
+@@ -110,7 +110,7 @@
+ 
+ ////////// OutPacketBuffer //////////
+ 
+-unsigned OutPacketBuffer::maxSize = 60000; // by default
++unsigned OutPacketBuffer::maxSize = 2000000; // by default
+ 
+ OutPacketBuffer
+ ::OutPacketBuffer(unsigned preferredPacketSize, unsigned maxPacketSize, unsigned maxBufferSize)
+diff -Naur live/mediaServer/DynamicRTSPServer.cpp live-new/mediaServer/DynamicRTSPServer.cpp
+--- live/mediaServer/DynamicRTSPServer.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/mediaServer/DynamicRTSPServer.cpp	2017-01-28 17:20:30.000000000 +0000
+@@ -138,12 +138,12 @@
+   } else if (strcmp(extension, ".264") == 0) {
+     // Assumed to be a H.264 Video Elementary Stream file:
+     NEW_SMS("H.264 Video");
+-    OutPacketBuffer::maxSize = 100000; // allow for some possibly large H.264 frames
++    OutPacketBuffer::maxSize = 2000000; // allow for some possibly large H.264 frames
+     sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(env, fileName, reuseSource));
+   } else if (strcmp(extension, ".265") == 0) {
+     // Assumed to be a H.265 Video Elementary Stream file:
+     NEW_SMS("H.265 Video");
+-    OutPacketBuffer::maxSize = 100000; // allow for some possibly large H.265 frames
++    OutPacketBuffer::maxSize = 2000000; // allow for some possibly large H.265 frames
+     sms->addSubsession(H265VideoFileServerMediaSubsession::createNew(env, fileName, reuseSource));
+   } else if (strcmp(extension, ".mp3") == 0) {
+     // Assumed to be a MPEG-1 or 2 Audio file:
+@@ -199,13 +199,13 @@
+   } else if (strcmp(extension, ".dv") == 0) {
+     // Assumed to be a DV Video file
+     // First, make sure that the RTPSinks' buffers will be large enough to handle the huge size of DV frames (as big as 288000).
+-    OutPacketBuffer::maxSize = 300000;
++    OutPacketBuffer::maxSize = 2000000;
+ 
+     NEW_SMS("DV Video");
+     sms->addSubsession(DVVideoFileServerMediaSubsession::createNew(env, fileName, reuseSource));
+   } else if (strcmp(extension, ".mkv") == 0 || strcmp(extension, ".webm") == 0) {
+     // Assumed to be a Matroska file (note that WebM ('.webm') files are also Matroska files)
+-    OutPacketBuffer::maxSize = 100000; // allow for some possibly large VP8 or VP9 frames
++    OutPacketBuffer::maxSize = 2000000; // allow for some possibly large VP8 or VP9 frames
+     NEW_SMS("Matroska video+audio+(optional)subtitles");
+ 
+     // Create a Matroska file server demultiplexor for the specified file.
+diff -Naur live/proxyServer/live555ProxyServer.cpp live-new/proxyServer/live555ProxyServer.cpp
+--- live/proxyServer/live555ProxyServer.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/proxyServer/live555ProxyServer.cpp	2017-01-28 17:20:56.000000000 +0000
+@@ -58,7 +58,7 @@
+ int main(int argc, char** argv) {
+   // Increase the maximum size of video frames that we can 'proxy' without truncation.
+   // (Such frames are unreasonably large; the back-end servers should really not be sending frames this large!)
+-  OutPacketBuffer::maxSize = 100000; // bytes
++  OutPacketBuffer::maxSize = 2000000; // bytes
+ 
+   // Begin by setting up our usage environment:
+   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
+diff -Naur live/testProgs/testDVVideoStreamer.cpp live-new/testProgs/testDVVideoStreamer.cpp
+--- live/testProgs/testDVVideoStreamer.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/testProgs/testDVVideoStreamer.cpp	2017-01-28 17:22:18.000000000 +0000
+@@ -55,7 +55,7 @@
+ 
+   // Create a 'DV Video RTP' sink from the RTP 'groupsock':
+   // (But first, make sure that its buffers will be large enough to handle the huge size of DV frames (as big as 288000).)
+-  OutPacketBuffer::maxSize = 300000;
++  OutPacketBuffer::maxSize = 2000000;
+   videoSink = DVVideoRTPSink::createNew(*env, &rtpGroupsock, 96);
+ 
+   // Create (and start) a 'RTCP instance' for this RTP sink:
+diff -Naur live/testProgs/testH264VideoStreamer.cpp live-new/testProgs/testH264VideoStreamer.cpp
+--- live/testProgs/testH264VideoStreamer.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/testProgs/testH264VideoStreamer.cpp	2017-01-28 17:22:24.000000000 +0000
+@@ -60,7 +60,7 @@
+   rtcpGroupsock.multicastSendOnly(); // we're a SSM source
+ 
+   // Create a 'H264 Video RTP' sink from the RTP 'groupsock':
+-  OutPacketBuffer::maxSize = 100000;
++  OutPacketBuffer::maxSize = 2000000;
+   videoSink = H264VideoRTPSink::createNew(*env, &rtpGroupsock, 96);
+ 
+   // Create (and start) a 'RTCP instance' for this RTP sink:
+diff -Naur live/testProgs/testH265VideoStreamer.cpp live-new/testProgs/testH265VideoStreamer.cpp
+--- live/testProgs/testH265VideoStreamer.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/testProgs/testH265VideoStreamer.cpp	2017-01-28 17:22:29.000000000 +0000
+@@ -61,7 +61,7 @@
+   rtcpGroupsock.multicastSendOnly(); // we're a SSM source
+ 
+   // Create a 'H265 Video RTP' sink from the RTP 'groupsock':
+-  OutPacketBuffer::maxSize = 100000;
++  OutPacketBuffer::maxSize = 2000000;
+   videoSink = H265VideoRTPSink::createNew(*env, &rtpGroupsock, 96);
+ 
+   // Create (and start) a 'RTCP instance' for this RTP sink:
+diff -Naur live/testProgs/testOnDemandRTSPServer.cpp live-new/testProgs/testOnDemandRTSPServer.cpp
+--- live/testProgs/testOnDemandRTSPServer.cpp	2017-01-26 11:29:37.000000000 +0000
++++ live-new/testProgs/testOnDemandRTSPServer.cpp	2017-01-28 17:22:34.000000000 +0000
+@@ -265,7 +265,7 @@
+   // A DV video stream:
+   {
+     // First, make sure that the RTPSinks' buffers will be large enough to handle the huge size of DV frames (as big as 288000).
+-    OutPacketBuffer::maxSize = 300000;
++    OutPacketBuffer::maxSize = 2000000;
+ 
+     char const* streamName = "dvVideoTest";
+     char const* inputFileName = "test.dv";
+@@ -409,7 +409,7 @@
+         // (Note: If the input UDP source is unicast rather than multicast, then change this to NULL.)
+     portNumBits const inputPortNum = 1234;
+         // This causes the server to take its input from the stream sent by the "testMPEG2TransportStreamer" demo application.
+-    Boolean const inputStreamIsRawUDP = False; 
++    Boolean const inputStreamIsRawUDP = False;
+     ServerMediaSession* sms
+       = ServerMediaSession::createNew(*env, streamName, streamName,
+ 				      descriptionString);
